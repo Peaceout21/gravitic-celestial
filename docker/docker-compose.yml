@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  poller:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: celestial-poller
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - SEC_IDENTITY=${SEC_IDENTITY}
+    volumes:
+      - ../data:/app/data
+    command: ["python3", "-u", "core/ingestion/polling_engine.py"]
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: celestial-dashboard
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    ports:
+      - "8501:8501"
+    volumes:
+      - ../data:/app/data
+    command: ["streamlit", "run", "web/dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    restart: unless-stopped

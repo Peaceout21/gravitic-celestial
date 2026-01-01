@@ -1,0 +1,24 @@
+[project]
+name = "gravitic-celestial"
+version = "0.1.0"
+description = "15-Minute Financial Analyst Agent MVP"
+dependencies = [
+    "streamlit",
+    "chromadb",
+    "rank_bm25",
+    "google-generativeai",
+    "pydantic",
+    "pymupdf",
+    "feedparser",
+    "beautifulsoup4",
+    "pillow",
+    "instructor",
+    "requests",
+]
+
+[tool.setuptools]
+packages = ["core", "ui"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
