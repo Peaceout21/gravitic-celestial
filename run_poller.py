@@ -22,6 +22,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.ingestion.polling_engine import PollingEngine
+from core.logging_config import configure_logging
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -52,7 +54,7 @@ def main():
     parser.add_argument(
         "--log-level",
         type=str,
-        default="INFO",
+        default=os.getenv("LOG_LEVEL", "INFO"),
         help="Logging level (DEBUG, INFO, WARNING, ERROR)"
     )
     parser.add_argument(
@@ -63,10 +65,12 @@ def main():
     )
     
     args = parser.parse_args()
-    
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+
+    configure_logging(
+        log_level=args.log_level,
+        log_format=args.log_format,
+        log_file=args.log_file,
+        console=args.console,
     )
     logger = logging.getLogger("run_poller")
 
@@ -80,8 +84,10 @@ def main():
     else:
         engine.start_scheduled(
             cron_expression=args.cron,
-            interval_minutes=args.interval
+            interval_minutes=args.interval,
+            misfire_grace_seconds=args.misfire_grace_seconds,
         )
+
 
 if __name__ == "__main__":
     main()
