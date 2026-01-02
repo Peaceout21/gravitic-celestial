@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 class StateManager:
     """
@@ -24,6 +24,17 @@ class StateManager:
                 ticker TEXT,
                 filing_date TEXT,
                 processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS failed_filings (
+                accession_number TEXT PRIMARY KEY,
+                ticker TEXT,
+                filing_date TEXT,
+                error_type TEXT,
+                error_message TEXT,
+                failed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                retry_count INTEGER DEFAULT 0
             )
         ''')
         self.conn.commit()
@@ -59,3 +70,88 @@ class StateManager:
         c.execute('SELECT COUNT(*) FROM processed_filings')
         count = c.fetchone()[0]
         return count
+
+    def mark_failed(
+        self,
+        accession_number: str,
+        ticker: str,
+        filing_date: str,
+        error_type: str,
+        error_message: str,
+        retention_days: int = 30,
+    ):
+        """Records a failed filing attempt for diagnostics and retries."""
+        c = self.conn.cursor()
+        try:
+            c.execute(
+                '''
+                INSERT INTO failed_filings (
+                    accession_number,
+                    ticker,
+                    filing_date,
+                    error_type,
+                    error_message,
+                    failed_at
+                ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(accession_number) DO UPDATE SET
+                    ticker = excluded.ticker,
+                    filing_date = excluded.filing_date,
+                    error_type = excluded.error_type,
+                    error_message = excluded.error_message,
+                    failed_at = CURRENT_TIMESTAMP
+                ''',
+                (accession_number, ticker, filing_date, error_type, error_message),
+            )
+            if retention_days > 0:
+                self.cleanup_failures(retention_days)
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error marking failure: {e}")
+
+    def increment_retry(self, accession_number: str):
+        """Increments the retry counter for a failed filing."""
+        c = self.conn.cursor()
+        try:
+            c.execute(
+                '''
+                UPDATE failed_filings
+                SET retry_count = retry_count + 1,
+                    failed_at = CURRENT_TIMESTAMP
+                WHERE accession_number = ?
+                ''',
+                (accession_number,),
+            )
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error incrementing retry count: {e}")
+
+    def get_failed(self, limit: int = 100) -> List[Tuple[str, str, str, str, str, str, int]]:
+        """Returns recent failed filings for diagnostics."""
+        c = self.conn.cursor()
+        c.execute(
+            '''
+            SELECT accession_number,
+                   ticker,
+                   filing_date,
+                   error_type,
+                   error_message,
+                   failed_at,
+                   retry_count
+            FROM failed_filings
+            ORDER BY failed_at DESC
+            LIMIT ?
+            ''',
+            (limit,),
+        )
+        return c.fetchall()
+
+    def cleanup_failures(self, retention_days: int = 30):
+        """Deletes failed filings older than the retention window."""
+        if retention_days <= 0:
+            return
+        c = self.conn.cursor()
+        c.execute(
+            'DELETE FROM failed_filings WHERE failed_at < datetime("now", ?)',
+            (f"-{retention_days} days",),
+        )
+        self.conn.commit()

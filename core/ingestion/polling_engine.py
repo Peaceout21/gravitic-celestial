@@ -70,6 +70,11 @@ class PollingEngine:
 
                 self.logger.info("🚨 NEW FILING FOUND: %s %s", ticker, accession)
 
+                filing_date = filing.get('filing_date')
+                if filing_date is None:
+                    self.logger.warning("Missing filing_date for %s %s", ticker, accession)
+                    filing_date = ""
+
                 try:
                     filing_obj = filing.get('filing_obj')
                     if filing_obj:
@@ -96,15 +101,18 @@ class PollingEngine:
                     else:
                         self.logger.warning("⚠️ No filing object available.")
 
-                    filing_date = filing.get('filing_date')
-                    if filing_date is None:
-                        self.logger.warning("Missing filing_date for %s %s", ticker, accession)
-                        filing_date = ""
                     self.state.mark_processed(accession, ticker, filing_date)
                     self.logger.info("✅ Processed %s %s", ticker, accession)
 
-                except Exception:
+                except Exception as exc:
                     self.logger.exception("❌ Error processing %s", ticker)
+                    self.state.mark_failed(
+                        accession,
+                        ticker,
+                        filing_date,
+                        type(exc).__name__,
+                        str(exc),
+                    )
 
     def start_loop(self, interval_seconds: int = 60):
         """Legacy simple loop. Use start_scheduled() for production."""
