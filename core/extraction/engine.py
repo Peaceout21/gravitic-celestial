@@ -18,13 +18,12 @@ genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
 class ExtractionEngine:
     def __init__(self, model_name: str = "gemini-2.0-flash-exp"):
         self.model_name = model_name
+        self.model = genai.GenerativeModel(self.model_name)
 
     def extract_from_text(self, text: str, ticker: str) -> EarningsReport:
         """
         Extracts structured earnings data from raw text using Gemini 2.0.
         """
-        model = genai.GenerativeModel(self.model_name)
-        
         prompt = f"""
         Extract the earnings details for {ticker} from the following press release.
         Return the result EXCLUSIVELY as a JSON object matching the following structure:
@@ -45,7 +44,7 @@ class ExtractionEngine:
         """
 
         try:
-            response = model.generate_content(prompt)
+            response = self.model.generate_content(prompt)
             json_str = response.text
             # Clean up JSON formatting if present
             if "```json" in json_str:

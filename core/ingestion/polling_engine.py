@@ -19,8 +19,8 @@ class PollingEngine:
         self.registry = MarketRegistry()
         self.state = StateManager()
         self.extractor = ExtractionEngine()
-        self.rag = HybridRAGEngine()
-        self.notifier = NotificationClient()
+        self.rag: HybridRAGEngine | None = None
+        self.notifier: NotificationClient | None = None
 
     def run_once(self):
         """Runs a single polling cycle across all markets."""
@@ -121,7 +121,18 @@ class PollingEngine:
                     f.write("**Bear Case**:\n" + "\n".join([f"- {i}" for i in report.summary.bear_case]) + "\n")
         
         # Send Notification
-        self.notifier.send_report_alert(report, filename)
+        notifier = self._get_notifier()
+        notifier.send_report_alert(report, filename)
+
+    def _get_notifier(self) -> NotificationClient:
+        if self.notifier is None:
+            self.notifier = NotificationClient()
+        return self.notifier
+
+    def _get_rag(self) -> HybridRAGEngine:
+        if self.rag is None:
+            self.rag = HybridRAGEngine()
+        return self.rag
 
 if __name__ == "__main__":
     poller = PollingEngine(tickers=["NVDA", "AMD", "INTC"])
