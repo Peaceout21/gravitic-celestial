@@ -104,7 +104,8 @@ def main():
     else:
         engine.start_scheduled(
             cron_expression=args.cron,
-            interval_minutes=args.interval
+            interval_minutes=args.interval,
+            misfire_grace_seconds=args.misfire_grace_seconds,
         )
 
 
