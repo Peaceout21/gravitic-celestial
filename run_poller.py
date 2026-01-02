@@ -22,6 +22,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.ingestion.polling_engine import PollingEngine
+from core.logging_config import configure_logging
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -52,29 +54,51 @@ def main():
     parser.add_argument(
         "--log-level",
         type=str,
-        default="INFO",
+        default=os.getenv("LOG_LEVEL", "INFO"),
         help="Logging level (DEBUG, INFO, WARNING, ERROR)"
     )
     parser.add_argument(
-        "--misfire-grace-seconds",
-        type=int,
-        default=None,
-        help="Grace period in seconds for missed scheduler runs",
+        "--log-format",
+        type=str,
+        choices=("json", "plain"),
+        default=os.getenv("LOG_FORMAT", "plain"),
+        help="Logging format (json, plain)"
     )
-    
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default=os.getenv("LOG_FILE", "logs/poller.log"),
+        help="Path to log file (default: logs/poller.log)"
+    )
+    console_group = parser.add_mutually_exclusive_group()
+    console_group.add_argument(
+        "--console",
+        action="store_true",
+        default=os.getenv("LOG_CONSOLE", "true").lower() in {"1", "true", "yes"},
+        help="Enable console logging (default: true)"
+    )
+    console_group.add_argument(
+        "--no-console",
+        action="store_false",
+        dest="console",
+        help="Disable console logging"
+    )
+
     args = parser.parse_args()
-    
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+
+    configure_logging(
+        log_level=args.log_level,
+        log_format=args.log_format,
+        log_file=args.log_file,
+        console=args.console,
     )
     logger = logging.getLogger("run_poller")
 
     logger.info("📊 Gravitic Financial Analyst")
     logger.info("   Monitoring: %s", args.tickers)
-    
+
     engine = PollingEngine(tickers=args.tickers)
-    
+
     if args.simple:
         engine.start_loop(interval_seconds=args.interval * 60)
     else:
@@ -83,6 +107,7 @@ def main():
             interval_minutes=args.interval,
             misfire_grace_seconds=args.misfire_grace_seconds,
         )
+
 
 if __name__ == "__main__":
     main()
