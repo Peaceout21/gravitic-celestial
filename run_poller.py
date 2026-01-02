@@ -55,6 +55,12 @@ def main():
         default="INFO",
         help="Logging level (DEBUG, INFO, WARNING, ERROR)"
     )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help="Maximum worker threads for concurrent filing processing"
+    )
     
     args = parser.parse_args()
     
@@ -67,7 +73,7 @@ def main():
     logger.info("📊 Gravitic Financial Analyst")
     logger.info("   Monitoring: %s", args.tickers)
     
-    engine = PollingEngine(tickers=args.tickers)
+    engine = PollingEngine(tickers=args.tickers, max_workers=args.max_workers)
     
     if args.simple:
         engine.start_loop(interval_seconds=args.interval * 60)
