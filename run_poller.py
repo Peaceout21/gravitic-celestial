@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""
+CLI entry point for the Financial Analyst Polling Engine.
+
+Usage:
+    # Run with default interval (every 5 minutes)
+    python run_poller.py NVDA AMD INTC
+
+    # Run with custom interval
+    python run_poller.py --interval 10 NVDA AMD
+
+    # Run with cron expression
+    python run_poller.py --cron "*/15 * * * *" NVDA AMD
+"""
+
+import argparse
+import os
+import sys
+
+# Ensure project root is in path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from core.ingestion.polling_engine import PollingEngine
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Run the Financial Analyst Polling Engine"
+    )
+    parser.add_argument(
+        "tickers",
+        nargs="+",
+        help="Ticker symbols to monitor (e.g., NVDA AMD RELIANCE.NS)"
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=5,
+        help="Polling interval in minutes (default: 5)"
+    )
+    parser.add_argument(
+        "--cron",
+        type=str,
+        default=None,
+        help="Cron expression for scheduling (e.g., '*/15 * * * *')"
+    )
+    parser.add_argument(
+        "--simple",
+        action="store_true",
+        help="Use simple loop instead of APScheduler"
+    )
+    
+    args = parser.parse_args()
+    
+    print(f"📊 Gravitic Financial Analyst")
+    print(f"   Monitoring: {args.tickers}")
+    
+    engine = PollingEngine(tickers=args.tickers)
+    
+    if args.simple:
+        engine.start_loop(interval_seconds=args.interval * 60)
+    else:
+        engine.start_scheduled(
+            cron_expression=args.cron,
+            interval_minutes=args.interval
+        )
+
+if __name__ == "__main__":
+    main()

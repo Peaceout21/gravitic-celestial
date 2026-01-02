@@ -85,7 +85,8 @@ class PollingEngine:
                     print(f"❌ Error processing {ticker}: {e}")
 
     def start_loop(self, interval_seconds: int = 60):
-        print("🚀 Starting Polling Engine...")
+        """Legacy simple loop. Use start_scheduled() for production."""
+        print("🚀 Starting Polling Engine (Simple Loop)...")
         while True:
             try:
                 self.run_once()
@@ -94,6 +95,48 @@ class PollingEngine:
             except KeyboardInterrupt:
                 print("Stopping poller.")
                 break
+
+    def start_scheduled(self, cron_expression: str = None, interval_minutes: int = 5):
+        """
+        Production scheduler using APScheduler.
+        Args:
+            cron_expression: Optional cron string (e.g., "*/5 * * * *" for every 5 mins).
+                             If None, uses interval_minutes.
+            interval_minutes: Fallback interval if cron not provided.
+        """
+        try:
+            from apscheduler.schedulers.blocking import BlockingScheduler
+            from apscheduler.triggers.cron import CronTrigger
+            from apscheduler.triggers.interval import IntervalTrigger
+        except ImportError:
+            print("❌ APScheduler not installed. Run: pip install apscheduler")
+            print("Falling back to simple loop...")
+            self.start_loop(interval_seconds=interval_minutes * 60)
+            return
+
+        scheduler = BlockingScheduler()
+        
+        if cron_expression:
+            trigger = CronTrigger.from_crontab(cron_expression)
+            print(f"🕐 Scheduled with cron: {cron_expression}")
+        else:
+            trigger = IntervalTrigger(minutes=interval_minutes)
+            print(f"🕐 Scheduled every {interval_minutes} minutes")
+
+        scheduler.add_job(self.run_once, trigger, id='polling_job', max_instances=1)
+        
+        print("🚀 Starting Polling Engine (Scheduled)...")
+        print("Press Ctrl+C to stop.")
+        
+        try:
+            # Run once immediately at startup
+            self.run_once()
+            scheduler.start()
+        except KeyboardInterrupt:
+            print("⛔ Shutting down scheduler...")
+            scheduler.shutdown()
+            print("Stopped.")
+
     def _save_report(self, report, ticker, accession):
         """Saves the extracted report as a Markdown file."""
         output_dir = "data/reports"

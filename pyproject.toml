@@ -15,6 +15,7 @@ dependencies = [
     "instructor",
     "requests",
     "edgartools",
+    "apscheduler",
 ]
 
 [tool.setuptools]
