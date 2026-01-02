@@ -23,6 +23,8 @@ class PollingEngine:
         self.rag: HybridRAGEngine | None = None
         self.notifier: NotificationClient | None = None
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.stale_in_progress_minutes = 60
+        self.cleanup_interval_minutes = 15
 
     def run_once(self):
         """Runs a single polling cycle across all markets."""
@@ -31,6 +33,7 @@ class PollingEngine:
             return
 
         self.logger.info("--- Polling for: %s ---", self.tickers)
+        self._cleanup_stale_in_progress()
 
         # Group tickers by market tobatch requests efficiently
         # Actually, our clients take a list of tickers, but they are market-specific.
@@ -71,6 +74,12 @@ class PollingEngine:
                 self.logger.info("🚨 NEW FILING FOUND: %s %s", ticker, accession)
 
                 try:
+                    filing_date = filing.get('filing_date')
+                    if filing_date is None:
+                        self.logger.warning("Missing filing_date for %s %s", ticker, accession)
+                        filing_date = ""
+                    self.state.mark_in_progress(accession, ticker, filing_date)
+
                     filing_obj = filing.get('filing_obj')
                     if filing_obj:
                         self.logger.info("📥 Fetching text for %s...", ticker)
@@ -96,15 +105,18 @@ class PollingEngine:
                     else:
                         self.logger.warning("⚠️ No filing object available.")
 
-                    filing_date = filing.get('filing_date')
-                    if filing_date is None:
-                        self.logger.warning("Missing filing_date for %s %s", ticker, accession)
-                        filing_date = ""
                     self.state.mark_processed(accession, ticker, filing_date)
                     self.logger.info("✅ Processed %s %s", ticker, accession)
 
-                except Exception:
+                except Exception as exc:
                     self.logger.exception("❌ Error processing %s", ticker)
+                    self.state.mark_failed(
+                        accession,
+                        ticker,
+                        filing_date if filing_date is not None else "",
+                        type(exc).__name__,
+                        str(exc)
+                    )
 
     def start_loop(self, interval_seconds: int = 60):
         """Legacy simple loop. Use start_scheduled() for production."""
@@ -165,6 +177,12 @@ class PollingEngine:
             self.logger.info("🕐 Scheduled every %s minutes", interval_minutes)
 
         scheduler.add_job(self.run_once, trigger, id='polling_job', max_instances=1)
+        scheduler.add_job(
+            self._cleanup_stale_in_progress,
+            IntervalTrigger(minutes=self.cleanup_interval_minutes),
+            id='polling_cleanup_job',
+            max_instances=1
+        )
 
         self.logger.info("🚀 Starting Polling Engine (Scheduled)...")
         self.logger.info("Press Ctrl+C to stop.")
@@ -217,6 +235,11 @@ class PollingEngine:
         if self.rag is None:
             self.rag = HybridRAGEngine()
         return self.rag
+
+    def _cleanup_stale_in_progress(self):
+        stale_count = self.state.cleanup_stale_in_progress(self.stale_in_progress_minutes)
+        if stale_count:
+            self.logger.warning("Marked %s stale filings as failed.", stale_count)
 
 if __name__ == "__main__":
     poller = PollingEngine(tickers=["NVDA", "AMD", "INTC"])
