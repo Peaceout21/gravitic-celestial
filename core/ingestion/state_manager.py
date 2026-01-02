@@ -26,6 +26,17 @@ class StateManager:
                 processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS scheduler_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                job_id TEXT,
+                scheduled_run_time TEXT,
+                exception TEXT,
+                traceback TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         self.conn.commit()
 
     def close(self):
@@ -59,3 +70,30 @@ class StateManager:
         c.execute('SELECT COUNT(*) FROM processed_filings')
         count = c.fetchone()[0]
         return count
+
+    def record_scheduler_event(
+        self,
+        event_type: str,
+        job_id: Optional[str],
+        scheduled_run_time: Optional[str],
+        exception: Optional[str],
+        traceback: Optional[str],
+    ) -> None:
+        """Records scheduler event metadata for later inspection."""
+        c = self.conn.cursor()
+        try:
+            c.execute(
+                '''
+                INSERT INTO scheduler_events (
+                    event_type,
+                    job_id,
+                    scheduled_run_time,
+                    exception,
+                    traceback
+                ) VALUES (?, ?, ?, ?, ?)
+                ''',
+                (event_type, job_id, scheduled_run_time, exception, traceback),
+            )
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error recording scheduler event: {e}")

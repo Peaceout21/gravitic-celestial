@@ -55,6 +55,12 @@ def main():
         default="INFO",
         help="Logging level (DEBUG, INFO, WARNING, ERROR)"
     )
+    parser.add_argument(
+        "--misfire-grace-seconds",
+        type=int,
+        default=None,
+        help="Grace period in seconds for missed scheduler runs",
+    )
     
     args = parser.parse_args()
     
@@ -74,7 +80,8 @@ def main():
     else:
         engine.start_scheduled(
             cron_expression=args.cron,
-            interval_minutes=args.interval
+            interval_minutes=args.interval,
+            misfire_grace_seconds=args.misfire_grace_seconds,
         )
 
 if __name__ == "__main__":

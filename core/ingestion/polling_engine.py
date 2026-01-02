@@ -120,7 +120,12 @@ class PollingEngine:
                 self.logger.info("Stopping poller.")
                 break
 
-    def start_scheduled(self, cron_expression: str = None, interval_minutes: int = 5):
+    def start_scheduled(
+        self,
+        cron_expression: str = None,
+        interval_minutes: int = 5,
+        misfire_grace_seconds: int | None = None,
+    ):
         """
         Production scheduler using APScheduler.
         Args:
@@ -142,10 +147,33 @@ class PollingEngine:
         scheduler = BlockingScheduler()
 
         def _log_scheduler_event(event):
+            scheduled_run_time = getattr(event, "scheduled_run_time", None)
+            scheduled_run_time_str = (
+                scheduled_run_time.isoformat() if scheduled_run_time else "unknown"
+            )
+            job_id = getattr(event, "job_id", "unknown")
             if event.exception:
-                self.logger.error("Scheduled job failed: %s", event.exception)
+                traceback_str = getattr(event, "traceback", None)
+                self.logger.error(
+                    "Scheduled job %s failed at %s: %s\n%s",
+                    job_id,
+                    scheduled_run_time_str,
+                    event.exception,
+                    traceback_str or "No traceback available.",
+                )
             else:
-                self.logger.warning("Scheduled job missed its run time.")
+                self.logger.warning(
+                    "Scheduled job %s missed its run time at %s.",
+                    job_id,
+                    scheduled_run_time_str,
+                )
+                self.state.record_scheduler_event(
+                    event_type="misfire",
+                    job_id=job_id,
+                    scheduled_run_time=scheduled_run_time_str,
+                    exception=None,
+                    traceback=None,
+                )
 
         scheduler.add_listener(_log_scheduler_event, EVENT_JOB_ERROR | EVENT_JOB_MISSED)
 
@@ -164,7 +192,15 @@ class PollingEngine:
             trigger = IntervalTrigger(minutes=interval_minutes)
             self.logger.info("🕐 Scheduled every %s minutes", interval_minutes)
 
-        scheduler.add_job(self.run_once, trigger, id='polling_job', max_instances=1)
+        if misfire_grace_seconds is not None and misfire_grace_seconds <= 0:
+            raise ValueError("misfire_grace_seconds must be positive")
+        scheduler.add_job(
+            self.run_once,
+            trigger,
+            id="polling_job",
+            max_instances=1,
+            misfire_grace_time=misfire_grace_seconds,
+        )
 
         self.logger.info("🚀 Starting Polling Engine (Scheduled)...")
         self.logger.info("Press Ctrl+C to stop.")
