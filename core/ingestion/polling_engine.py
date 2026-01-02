@@ -1,6 +1,8 @@
 import time
 import os
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 from core.ingestion.international.market_registry import MarketRegistry
 from core.ingestion.state_manager import StateManager
@@ -15,14 +17,74 @@ class PollingEngine:
     2. Checks SQLite state to avoid duplicates.
     3. Triggers Extraction + RAG Indexing.
     """
-    def __init__(self, tickers: List[str]):
+    def __init__(self, tickers: List[str], max_workers: int | None = None):
         self.tickers = tickers
         self.registry = MarketRegistry()
-        self.state = StateManager()
         self.extractor = ExtractionEngine()
         self.rag: HybridRAGEngine | None = None
         self.notifier: NotificationClient | None = None
         self.logger = logging.getLogger(self.__class__.__name__)
+        self._state_local = threading.local()
+        self.max_workers = max_workers or min(32, (os.cpu_count() or 1) + 4)
+
+    def _get_state_manager(self) -> StateManager:
+        if not hasattr(self._state_local, "state"):
+            self._state_local.state = StateManager()
+        return self._state_local.state
+
+    def _process_filing(self, filing: dict, client) -> None:
+        accession = filing.get('accession_number')
+        ticker = filing.get('ticker')
+
+        if not accession or not ticker:
+            self.logger.warning("Skipping malformed filing: %s", filing)
+            return
+
+        self.logger.info("➡️ Starting task for %s %s", ticker, accession)
+        try:
+            state = self._get_state_manager()
+            if state.is_processed(accession):
+                self.logger.info("Skipping %s %s (Already processed)", ticker, accession)
+                return
+
+            self.logger.info("🚨 NEW FILING FOUND: %s %s", ticker, accession)
+
+            filing_obj = filing.get('filing_obj')
+            if filing_obj:
+                self.logger.info("📥 Fetching text for %s...", ticker)
+                try:
+                    text_content = client.get_filing_text(filing_obj)
+                except Exception:
+                    self.logger.exception("Failed to fetch filing text for %s", ticker)
+                    text_content = None
+
+                if text_content:
+                    preview_len = min(200, len(text_content))
+                    self.logger.debug("📄 Content Preview: %s...", text_content[:preview_len])
+
+                    # Trigger Extraction
+                    self.logger.info("🤖 Generating Earnings Note for %s...", ticker)
+                    report = self.extractor.extract_from_text(text_content, ticker)
+
+                    # Save Report to Disk
+                    self._save_report(report, ticker, accession)
+                    self.logger.info("📝 Report saved to data/reports/%s_%s.md", ticker, accession)
+                else:
+                    self.logger.warning("⚠️ No content extracted.")
+            else:
+                self.logger.warning("⚠️ No filing object available.")
+
+            filing_date = filing.get('filing_date')
+            if filing_date is None:
+                self.logger.warning("Missing filing_date for %s %s", ticker, accession)
+                filing_date = ""
+            state.mark_processed(accession, ticker, filing_date)
+            self.logger.info("✅ Processed %s %s", ticker, accession)
+
+        except Exception:
+            self.logger.exception("❌ Error processing %s %s", ticker, accession)
+        finally:
+            self.logger.info("⬅️ Finished task for %s %s", ticker, accession)
 
     def run_once(self):
         """Runs a single polling cycle across all markets."""
@@ -56,55 +118,22 @@ class PollingEngine:
                 self.logger.exception("Failed fetching filings for %s", market_tickers)
                 continue
 
-            for filing in filings:
-                accession = filing.get('accession_number')
-                ticker = filing.get('ticker')
+            if not filings:
+                continue
 
-                if not accession or not ticker:
-                    self.logger.warning("Skipping malformed filing: %s", filing)
-                    continue
-
-                if self.state.is_processed(accession):
-                    self.logger.info("Skipping %s %s (Already processed)", ticker, accession)
-                    continue
-
-                self.logger.info("🚨 NEW FILING FOUND: %s %s", ticker, accession)
-
-                try:
-                    filing_obj = filing.get('filing_obj')
-                    if filing_obj:
-                        self.logger.info("📥 Fetching text for %s...", ticker)
-                        try:
-                            text_content = client.get_filing_text(filing_obj)
-                        except Exception:
-                            self.logger.exception("Failed to fetch filing text for %s", ticker)
-                            text_content = None
-
-                        if text_content:
-                            preview_len = min(200, len(text_content))
-                            self.logger.debug("📄 Content Preview: %s...", text_content[:preview_len])
-
-                            # Trigger Extraction
-                            self.logger.info("🤖 Generating Earnings Note for %s...", ticker)
-                            report = self.extractor.extract_from_text(text_content, ticker)
-
-                            # Save Report to Disk
-                            self._save_report(report, ticker, accession)
-                            self.logger.info("📝 Report saved to data/reports/%s_%s.md", ticker, accession)
-                        else:
-                            self.logger.warning("⚠️ No content extracted.")
-                    else:
-                        self.logger.warning("⚠️ No filing object available.")
-
-                    filing_date = filing.get('filing_date')
-                    if filing_date is None:
-                        self.logger.warning("Missing filing_date for %s %s", ticker, accession)
-                        filing_date = ""
-                    self.state.mark_processed(accession, ticker, filing_date)
-                    self.logger.info("✅ Processed %s %s", ticker, accession)
-
-                except Exception:
-                    self.logger.exception("❌ Error processing %s", ticker)
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = {
+                    executor.submit(self._process_filing, filing, client): filing
+                    for filing in filings
+                }
+                for future in as_completed(futures):
+                    filing = futures[future]
+                    accession = filing.get('accession_number')
+                    ticker = filing.get('ticker')
+                    try:
+                        future.result()
+                    except Exception:
+                        self.logger.exception("❌ Unhandled exception for %s %s", ticker, accession)
 
     def start_loop(self, interval_seconds: int = 60):
         """Legacy simple loop. Use start_scheduled() for production."""

@@ -58,32 +58,12 @@ def main():
         help="Logging level (DEBUG, INFO, WARNING, ERROR)"
     )
     parser.add_argument(
-        "--log-format",
-        type=str,
-        choices=("json", "plain"),
-        default=os.getenv("LOG_FORMAT", "plain"),
-        help="Logging format (json, plain)"
+        "--max-workers",
+        type=int,
+        default=None,
+        help="Maximum worker threads for concurrent filing processing"
     )
-    parser.add_argument(
-        "--log-file",
-        type=str,
-        default=os.getenv("LOG_FILE", "logs/poller.log"),
-        help="Path to log file (default: logs/poller.log)"
-    )
-    console_group = parser.add_mutually_exclusive_group()
-    console_group.add_argument(
-        "--console",
-        action="store_true",
-        default=os.getenv("LOG_CONSOLE", "true").lower() in {"1", "true", "yes"},
-        help="Enable console logging (default: true)"
-    )
-    console_group.add_argument(
-        "--no-console",
-        action="store_false",
-        dest="console",
-        help="Disable console logging"
-    )
-
+    
     args = parser.parse_args()
 
     configure_logging(
@@ -96,9 +76,9 @@ def main():
 
     logger.info("📊 Gravitic Financial Analyst")
     logger.info("   Monitoring: %s", args.tickers)
-
-    engine = PollingEngine(tickers=args.tickers)
-
+    
+    engine = PollingEngine(tickers=args.tickers, max_workers=args.max_workers)
+    
     if args.simple:
         engine.start_loop(interval_seconds=args.interval * 60)
     else:
