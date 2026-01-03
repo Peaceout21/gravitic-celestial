@@ -14,6 +14,7 @@ Usage:
 """
 
 import argparse
+import logging
 import os
 import sys
 
@@ -21,6 +22,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.ingestion.polling_engine import PollingEngine
+from core.logging_config import configure_logging
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -48,21 +51,43 @@ def main():
         action="store_true",
         help="Use simple loop instead of APScheduler"
     )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default=os.getenv("LOG_LEVEL", "INFO"),
+        help="Logging level (DEBUG, INFO, WARNING, ERROR)"
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help="Maximum worker threads for concurrent filing processing"
+    )
     
     args = parser.parse_args()
+
+    configure_logging(
+        log_level=args.log_level,
+        log_format=args.log_format,
+        log_file=args.log_file,
+        console=args.console,
+    )
+    logger = logging.getLogger("run_poller")
+
+    logger.info("📊 Gravitic Financial Analyst")
+    logger.info("   Monitoring: %s", args.tickers)
     
-    print(f"📊 Gravitic Financial Analyst")
-    print(f"   Monitoring: {args.tickers}")
-    
-    engine = PollingEngine(tickers=args.tickers)
+    engine = PollingEngine(tickers=args.tickers, max_workers=args.max_workers)
     
     if args.simple:
         engine.start_loop(interval_seconds=args.interval * 60)
     else:
         engine.start_scheduled(
             cron_expression=args.cron,
-            interval_minutes=args.interval
+            interval_minutes=args.interval,
+            misfire_grace_seconds=args.misfire_grace_seconds,
         )
+
 
 if __name__ == "__main__":
     main()
