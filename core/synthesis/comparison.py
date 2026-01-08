@@ -38,5 +38,13 @@ class ComparisonEngine:
         
         return deltas
 
+    def get_alternative_alpha(self, ticker: str) -> str:
+        """
+        SOTA: Pulls fused operational alpha from the Nebula Signal Store.
+        """
+        from core.fusion.nebula_bridge import NebulaBridge
+        bridge = NebulaBridge()
+        return bridge.get_alpha_context(ticker)
+
 if __name__ == "__main__":
     print("Comparison Engine Initialized.")

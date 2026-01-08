@@ -7,6 +7,8 @@ from core.synthesis.hybrid_rag import HybridRAGEngine
 from core.models import EarningsReport, KPI, ExecutiveSummary, Guidance
 from core.analysis.sandbagging import SandbaggingAnalyzer
 from core.analysis.contagion import ContagionGraph
+from core.fusion.nebula_bridge import NebulaBridge
+from core.export.auto_modeler import AutoModeler
 
 # Page Config
 st.set_page_config(
@@ -90,7 +92,14 @@ if api_key:
     st.sidebar.success("API Key Set!")
 
 # Tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔍 Competitor Search (RAG)", "📄 Analyze New Report", "📊 Dashboard", "🔮 Predictive CFO", "🕸️ Supply Chain"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "🔍 Competitor Search (RAG)", 
+    "📄 Analyze New Report", 
+    "📊 Dashboard", 
+    "🔮 Predictive CFO", 
+    "🕸️ Supply Chain",
+    "🪐 Nebula Alpha"
+])
 
 with tab1:
     st.subheader("Cross-Company Competitor Analysis")
@@ -105,9 +114,17 @@ with tab1:
                 results = engine.search(query, top_k=5)
                 
                 if results:
+                    nebula = NebulaBridge()
                     for i, res in enumerate(results):
-                        with st.expander(f"**{res['metadata']['ticker']}** - {res['metadata']['topic']} ({res['metadata']['fiscal_period']})", expanded=(i==0)):
+                        ticker_val = res['metadata']['ticker']
+                        with st.expander(f"**{ticker_val}** - {res['metadata']['topic']} ({res['metadata']['fiscal_period']})", expanded=(i==0)):
                             st.markdown(f"> {res['text']}")
+                            
+                            # Fusion Logic: Pull Nebula Alt-Data if available
+                            alt_data = nebula.get_company_signals(ticker_val)
+                            if alt_data:
+                                st.info("**Nebula Alpha Signal Found:**")
+                                st.markdown(nebula.get_alpha_context(ticker_val))
                 else:
                     st.warning("No results found. Try a different query.")
         else:
@@ -128,16 +145,31 @@ with tab2:
     if st.button("Analyze", type="primary"):
         if ticker and text_input:
             st.info("🔄 Extracting structured data... (This would call Gemini 2.0 in live mode)")
-            # Mock output for demo
+            # Mock KPIs for demo
+            mock_kpis = [
+                {"name": "Revenue", "value_actual": "$18.12B", "growth_yoy": "+206%", "source_text": "Revenue was a record $18.12B."},
+                {"name": "Data Center Revenue", "value_actual": "$14.51B", "growth_yoy": "+279%", "source_text": "Data Center revenue hit $14.51B."},
+                {"name": "EPS (Diluted)", "value_actual": "$4.02", "growth_yoy": "+593%", "source_text": "GAAP EPS was $4.02."}
+            ]
             st.success("✅ Analysis Complete!")
             st.json({
                 "ticker": ticker,
                 "fiscal_period": period,
-                "kpis": [
-                    {"name": "Revenue", "value": "$XX.XXB", "growth": "+YY%"}
-                ],
+                "kpis": mock_kpis,
                 "summary": "This is a mock summary. In live mode, Gemini 2.0 would extract this."
             })
+            
+            # Auto-Modeler Download
+            st.markdown("---")
+            st.subheader("⏬ Download Master Model")
+            modeler = AutoModeler(ticker.upper(), period)
+            excel_bytes = modeler.generate(mock_kpis)
+            st.download_button(
+                label="Download Excel Model",
+                data=excel_bytes,
+                file_name=modeler.get_filename(),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
         else:
             st.warning("Please enter ticker and press release text.")
 
@@ -215,6 +247,44 @@ with tab5:
         except Exception as e:
             st.error(f"Graph generation failed: {e}")
             st.info("Ensure graphviz is installed.")
+
+with tab6:
+    st.subheader("🪐 Nebula Alpha: Alternative Data Intelligence")
+    st.markdown("High-alpha insights fused from hiring velocity, shipping volume, and digital footprints.")
+    
+    ticker_nebula = st.text_input("Deep Dive Ticker", value="NVDA", key="nebula_ticker")
+    
+    if st.button("Query Nebula Signal Store", type="primary"):
+        nebula = NebulaBridge()
+        signals = nebula.get_company_signals(ticker_nebula)
+        
+        if not signals:
+            st.warning(f"No alternative data cached for {ticker_nebula}. Launching Nebula scanner...")
+            # In a full implementation, this could trigger a live scrape via subprocess or RPC
+            st.info("Scanner running... (Mocked: 0 Firecrawl credits consumed as this would check existing caches first)")
+        else:
+            st.success(f"Found {len(signals)} operational signals for {ticker_nebula}")
+            
+            c1, c2, c3 = st.columns(3)
+            
+            if 'hiring' in signals:
+                h = signals['hiring']
+                c1.metric("Hiring Velocity", h.get('expansion_velocity', 0), help="R&D/Sales focus in job bank")
+                c1.write(f"**Macro:** {h.get('total_open_roles_macro')} roles")
+            
+            if 'shipping' in signals:
+                s = signals['shipping']
+                c2.metric("Shipment Index", s.get('total_inventory_incoming_teu', 0), help="Incoming TEU volume")
+                c2.write(f"**Trend:** {s.get('signal_strength')}")
+                
+            if 'digital' in signals:
+                d = signals['digital']
+                c3.metric("App Rank", d.get('current_value', "N/A"), help="Real-time app store traction")
+                c3.write(f"**Sentiment:** {d.get('signal')}")
+
+            st.markdown("---")
+            st.markdown("#### Operational Narrative")
+            st.markdown(nebula.get_alpha_context(ticker_nebula))
 
 # Footer
 st.markdown("---")
