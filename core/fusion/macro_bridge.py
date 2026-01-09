@@ -56,6 +56,35 @@ class MacroBridge:
         """
         return self.get_sector_signals("Macro", limit)
 
+    def run_live_scan(self, ticker: str, limit: int = 10) -> List[Dict]:
+        """
+        Performs a full search + hydration loop across workspace boundaries.
+        Returns a list of hydrated MacroEvent-like dicts.
+        """
+        try:
+            # 1. Import Macro components (requires them to be in python path)
+            from macro_core.scrapers.polymarket import PolymarketScraper
+            from macro_core.scrapers.discovery import DiscoveryEngine
+            
+            scraper = PolymarketScraper(use_llm_filter=False) # No LLM in live scan for speed
+            discovery = DiscoveryEngine()
+            
+            # 2. Search Local Index
+            metadata = discovery.search_ticker(ticker, limit=limit)
+            
+            # 3. Hydrate live data
+            hydrated = scraper.hydrate_metadata(metadata)
+            
+            # 4. Convert to dict for UI consumption
+            return [e.dict() for e in hydrated]
+            
+        except ImportError:
+            logger.error("Macro dependencies not available for live scan.")
+            return []
+        except Exception as e:
+            logger.error(f"Live scan failed: {e}")
+            return []
+
     def _execute_query(self, query: str, params: tuple) -> pd.DataFrame:
         """
         Executes SQL and returns a Pandas DataFrame.

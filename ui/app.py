@@ -1,7 +1,9 @@
 import streamlit as st
+import pandas as pd
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'gravitic-macro'))
 
 from core.synthesis.hybrid_rag import HybridRAGEngine
 from core.models import EarningsReport, KPI, ExecutiveSummary, Guidance
@@ -301,29 +303,34 @@ with tab7:
         
         c1, c2 = st.columns(2)
         
-        # 1. Ticker Specific
+        # 1. Ticker Specific (LIVE SCAN)
         with c1:
             st.markdown(f"### 🎯 {ticker_macro} Predictions")
-            with st.spinner(f"Querying Gravitic-Macro DB for {ticker_macro}..."):
-                signals = bridge.get_ticker_signals(ticker_macro)
+            with st.spinner(f"🔍 Deep searching local index for {ticker_macro}..."):
+                # Use run_live_scan for parity with Polymarket UI
+                signals = bridge.run_live_scan(ticker_macro)
                 
-                if signals.empty:
+                if not signals:
                     st.warning(f"No active prediction markets found for {ticker_macro}.")
                     st.info("Try updating the Local Index via 'gravitic-macro'.")
                 else:
-                    for _, row in signals.iterrows():
-                        prob = row['probability_yes']
-                        # Color code: Green > 60%, Red < 40%, Grey otherwise
-                        delta_color = "normal"
-                        if prob > 0.6: delta_color = "normal" # Streamlit handles green for +
-                        elif prob < 0.4: delta_color = "inverse"
+                    for s in signals:
+                        st.markdown(f"#### {s['title']}")
                         
-                        st.metric(
-                            label=row['event_title'],
-                            value=f"{prob:.1%}",
-                            delta=f"Vol: ${row['volume_usd']:,.0f}"
-                        )
-                        st.progress(prob)
+                        # Handle Multi-Outcome
+                        if s.get('outcomes'):
+                            # Create a clean dataframe for outcomes
+                            outcomes_df = pd.DataFrame(s['outcomes']).sort_values(by='probability', ascending=False)
+                            st.table(outcomes_df.rename(columns={'label': 'Outcome', 'probability': 'Odds'}).style.format({'Odds': '{:.1%}'}))
+                        else:
+                            # Standard Binary Metric
+                            prob = s['probability_yes']
+                            st.metric(
+                                label="Market Probability",
+                                value=f"{prob:.1%}",
+                                delta=f"Vol: ${s['volume_usd']:,.0f}" if s.get('volume_usd') else None
+                            )
+                            st.progress(prob)
                         st.divider()
 
         # 2. Global Macro
