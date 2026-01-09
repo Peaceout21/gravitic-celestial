@@ -92,13 +92,14 @@ if api_key:
     st.sidebar.success("API Key Set!")
 
 # Tabs
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🔍 Competitor Search (RAG)", 
     "📄 Analyze New Report", 
     "📊 Dashboard", 
     "🔮 Predictive CFO", 
     "🕸️ Supply Chain",
-    "🪐 Nebula Alpha"
+    "🪐 Nebula Alpha",
+    "📡 Macro Radar"
 ])
 
 with tab1:
@@ -285,6 +286,57 @@ with tab6:
             st.markdown("---")
             st.markdown("#### Operational Narrative")
             st.markdown(nebula.get_alpha_context(ticker_nebula))
+
+with tab7:
+    st.subheader("📡 Polymarket Macro Radar")
+    st.markdown("Real-time 'Market-Implied Truth' from prediction markets. Bypasses news noise.")
+    
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        ticker_macro = st.text_input("Ticker Symbol", value="NVDA", key="macro_ticker")
+    
+    if st.button("Scan Prediction Markets", type="primary"):
+        from core.fusion.macro_bridge import MacroBridge
+        bridge = MacroBridge()
+        
+        c1, c2 = st.columns(2)
+        
+        # 1. Ticker Specific
+        with c1:
+            st.markdown(f"### 🎯 {ticker_macro} Predictions")
+            with st.spinner(f"Querying Gravitic-Macro DB for {ticker_macro}..."):
+                signals = bridge.get_ticker_signals(ticker_macro)
+                
+                if signals.empty:
+                    st.warning(f"No active prediction markets found for {ticker_macro}.")
+                    st.info("Try updating the Local Index via 'gravitic-macro'.")
+                else:
+                    for _, row in signals.iterrows():
+                        prob = row['probability_yes']
+                        # Color code: Green > 60%, Red < 40%, Grey otherwise
+                        delta_color = "normal"
+                        if prob > 0.6: delta_color = "normal" # Streamlit handles green for +
+                        elif prob < 0.4: delta_color = "inverse"
+                        
+                        st.metric(
+                            label=row['event_title'],
+                            value=f"{prob:.1%}",
+                            delta=f"Vol: ${row['volume_usd']:,.0f}"
+                        )
+                        st.progress(prob)
+                        st.divider()
+
+        # 2. Global Macro
+        with c2:
+            st.markdown("### 🌍 Global Macro Risks")
+            with st.spinner("Fetching global context..."):
+                macro = bridge.get_macro_risk_signals()
+                if not macro.empty:
+                    for _, row in macro.iterrows():
+                        st.caption(f"{row['event_title']}")
+                        st.progress(row['probability_yes'], text=f"{row['probability_yes']:.1%} Chance")
+                else:
+                    st.info("No global macro signals available.")
 
 # Footer
 st.markdown("---")
