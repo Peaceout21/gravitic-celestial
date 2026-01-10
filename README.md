@@ -12,9 +12,9 @@ source celestial-venv/bin/activate
 pip install .
 ```
 To run in local
-```bash
+
 cd /Users/arjun/.gemini/antigravity/scratch/gravitic-macro && source macro-venv/bin/activate && export PYTHONPATH=$PYTHONPATH:. && python3 scripts/test_improvements.py
-```bash
+
 
 ### 2. Set API Key
 ```bash
