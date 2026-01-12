@@ -74,6 +74,10 @@ class NebulaBridge:
             d = signals['digital']
             context += f"- **Digital Footprint**: Rank {d.get('current_value', 'N/A')}. {d.get('interpretation', '')}\n"
 
+        if 'social' in signals:
+            sc = signals['social']
+            context += f"- **Social Sentiment**: {sc.get('signal', 'Neutral')} ({sc.get('sentiment_score', 'N/A')}). {sc.get('interpretation', '')}\n"
+
         return context
 
 if __name__ == "__main__":
