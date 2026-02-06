@@ -16,6 +16,8 @@ dependencies = [
     "requests",
     "edgartools",
     "apscheduler",
+    "graphviz",
+    "xlsxwriter",
 ]
 
 [tool.setuptools]

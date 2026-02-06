@@ -3,11 +3,12 @@ import os
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List
+from typing import List, Optional
 from core.ingestion.international.market_registry import MarketRegistry
 from core.ingestion.state_manager import StateManager
 from core.extraction.engine import ExtractionEngine
 from core.synthesis.hybrid_rag import HybridRAGEngine
+from core.models import EarningsReport
 from core.notifications.client import NotificationClient
 
 class PollingEngine:
@@ -17,12 +18,12 @@ class PollingEngine:
     2. Checks SQLite state to avoid duplicates.
     3. Triggers Extraction + RAG Indexing.
     """
-    def __init__(self, tickers: List[str], max_workers: int | None = None):
+    def __init__(self, tickers: List[str], max_workers: Optional[int] = None):
         self.tickers = tickers
         self.registry = MarketRegistry()
         self.extractor = ExtractionEngine()
-        self.rag: HybridRAGEngine | None = None
-        self.notifier: NotificationClient | None = None
+        self.rag: Optional[HybridRAGEngine] = None
+        self.notifier: Optional[NotificationClient] = None
         self.logger = logging.getLogger(self.__class__.__name__)
         self._state_local = threading.local()
         self.max_workers = max_workers or min(32, (os.cpu_count() or 1) + 4)
@@ -69,6 +70,10 @@ class PollingEngine:
                     # Save Report to Disk
                     self._save_report(report, ticker, accession)
                     self.logger.info("📝 Report saved to data/reports/%s_%s.md", ticker, accession)
+
+                    # Index for RAG
+                    self.logger.info("📂 Indexing %s into Hybrid RAG...", ticker)
+                    self._index_report(report, ticker, accession)
                 else:
                     self.logger.warning("⚠️ No content extracted.")
             else:
@@ -153,7 +158,7 @@ class PollingEngine:
         self,
         cron_expression: str = None,
         interval_minutes: int = 5,
-        misfire_grace_seconds: int | None = None,
+        misfire_grace_seconds: Optional[int] = None,
     ):
         """
         Production scheduler using APScheduler.
@@ -272,6 +277,66 @@ class PollingEngine:
         # Send Notification
         notifier = self._get_notifier()
         notifier.send_report_alert(report, filename)
+
+    def _index_report(self, report: EarningsReport, ticker: str, accession: str):
+        """Indexes extracted KPIs, summary, and guidance into Hybrid RAG."""
+        rag = self._get_rag()
+        documents = []
+
+        # 1. Index KPIs
+        for i, kpi in enumerate(report.kpis):
+            documents.append({
+                "id": f"{ticker}_{accession}_kpi_{i}",
+                "text": f"{ticker} {report.fiscal_period} - {kpi.name}: {kpi.value_actual}. Context: {kpi.context}",
+                "metadata": {
+                    "ticker": ticker,
+                    "fiscal_period": report.fiscal_period,
+                    "topic": kpi.name,
+                    "type": "kpi"
+                }
+            })
+
+        # 2. Index Summary (Bull/Bear cases)
+        if report.summary:
+            if report.summary.bull_case:
+                documents.append({
+                    "id": f"{ticker}_{accession}_bull",
+                    "text": f"{ticker} {report.fiscal_period} Bull Case highlights: " + "; ".join(report.summary.bull_case),
+                    "metadata": {
+                        "ticker": ticker,
+                        "fiscal_period": report.fiscal_period,
+                        "topic": "Bull Case",
+                        "type": "summary"
+                    }
+                })
+            if report.summary.bear_case:
+                documents.append({
+                    "id": f"{ticker}_{accession}_bear",
+                    "text": f"{ticker} {report.fiscal_period} Bear Case risks: " + "; ".join(report.summary.bear_case),
+                    "metadata": {
+                        "ticker": ticker,
+                        "fiscal_period": report.fiscal_period,
+                        "topic": "Bear Case",
+                        "type": "summary"
+                    }
+                })
+
+        # 3. Index Guidance
+        for i, guide in enumerate(report.guidance):
+            documents.append({
+                "id": f"{ticker}_{accession}_guide_{i}",
+                "text": f"{ticker} {report.fiscal_period} Guidance for {guide.metric}: {guide.midpoint} {guide.unit}. Commentary: {guide.commentary}",
+                "metadata": {
+                    "ticker": ticker,
+                    "fiscal_period": report.fiscal_period,
+                    "topic": "Guidance",
+                    "type": "guidance"
+                }
+            })
+
+        if documents:
+            rag.add_documents(documents)
+            self.logger.info("✅ Indexed %d documents for %s into Hybrid RAG.", len(documents), ticker)
 
     def _get_notifier(self) -> NotificationClient:
         if self.notifier is None:

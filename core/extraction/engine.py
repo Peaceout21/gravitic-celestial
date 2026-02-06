@@ -16,7 +16,7 @@ from core.models import EarningsReport
 genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
 
 class ExtractionEngine:
-    def __init__(self, model_name: str = "gemini-2.0-flash-exp"):
+    def __init__(self, model_name: str = "gemini-3-flash-preview"):
         self.model_name = model_name
         self.model = genai.GenerativeModel(self.model_name)
 

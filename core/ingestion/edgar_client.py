@@ -55,48 +55,61 @@ class EdgarClient(BaseIngestionClient):
     def get_filing_text(self, filing_obj) -> Optional[str]:
         """
         Fetches the content of a filing using edgartools methods.
-        Prioritizes Markdown > HTML > Text for LLM consumption.
+        Prioritizes Exhibit 99.1 (Press Release) if available, 
+        concatenating it with the main filing text.
         """
         try:
             if not filing_obj:
                 return None
                 
-            # Try to get Markdown first (cleanest for LLMs)
+            content = ""
+            
+            # 1. Get main filing text
             if hasattr(filing_obj, 'markdown'):
-                content = filing_obj.markdown()
-                if content: 
-                    return content
-            
-            # Fallback to HTML
-            if hasattr(filing_obj, 'html'):
-                content = filing_obj.html()
-                if content:
-                    return content
-                    
-            # Fallback to plain text
-            if hasattr(filing_obj, 'text'):
-                content = filing_obj.text() or ""
+                main_text = filing_obj.markdown()
+            elif hasattr(filing_obj, 'text'):
+                main_text = filing_obj.text()
             else:
-                content = ""
-            
-            # Check for Exhibit 99.1 (Press Release)
+                main_text = ""
+                
+            if main_text:
+                content += f"--- MAIN FILING (FORM {filing_obj.form}) ---\n{main_text}\n"
+
+            # 2. Check for Exhibit 99.1 (Press Release)
             if hasattr(filing_obj, 'attachments'):
-                # attachments is usually a list of Attachment objects
+                # attachments is a list-like object
                 for attachment in filing_obj.attachments:
-                    # Check description or type. Usually 'EX-99.1'
-                    # edgartools attachment might have .description or .type
+                    # Check description or filename. Usually 'EX-99.1' or 'ex99-1'
                     desc = getattr(attachment, 'description', '').upper()
-                    if 'EX-99.1' in desc or 'PRESS RELEASE' in desc:
-                        print("  📎 Found Exhibit 99.1 (Press Release), appending...")
-                        # Try to get text of attachment
-                        if hasattr(attachment, 'download'):
-                            # For text attachments, download returns content
-                            # For binary, we might need OCR, but 99.1 is often HTML/Text
-                            att_content = attachment.download()
-                            if att_content:
-                                content += f"\n\n--- EXHIBIT 99.1 ---\n{att_content}"
+                    doc_name = getattr(attachment, 'document', '').upper()
+                    
+                    is_press_release = (
+                        'EX-99.1' in desc or 
+                        'PRESS RELEASE' in desc or 
+                        'EX991' in doc_name or
+                        'EX-99.1' in doc_name
+                    )
+
+                    if is_press_release:
+                        print(f"  📎 Found Exhibit 99.1 ({doc_name}), extracting...")
+                        
+                        att_text = None
+                        # Prefer markdown from attachment if the library supports it
+                        if hasattr(attachment, 'markdown'):
+                            att_text = attachment.markdown()
+                        elif hasattr(attachment, 'text'):
+                            att_text = attachment.text()
+                        elif hasattr(attachment, 'download'):
+                            # download() usually returns the raw document (HTML or Text)
+                            # We'll treat it as text/html for now
+                            att_text = attachment.download()
+                            if isinstance(att_text, bytes):
+                                att_text = att_text.decode('utf-8', errors='ignore')
+                        
+                        if att_text:
+                            content += f"\n\n--- EXHIBIT 99.1 (PRESS RELEASE) ---\n{att_text}"
             
-            return content
+            return content.strip() if content else None
         except Exception as e:
             print(f"Error extracting text from filing: {e}")
             return None

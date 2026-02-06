@@ -17,6 +17,10 @@ import argparse
 import logging
 import os
 import sys
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Ensure project root is in path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -56,6 +60,30 @@ def main():
         type=str,
         default=os.getenv("LOG_LEVEL", "INFO"),
         help="Logging level (DEBUG, INFO, WARNING, ERROR)"
+    )
+    parser.add_argument(
+        "--log-format",
+        type=str,
+        default="plain",
+        help="Custom logging format"
+    )
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Path to log file"
+    )
+    parser.add_argument(
+        "--console",
+        action="store_true",
+        default=True,
+        help="Log to console (default: True)"
+    )
+    parser.add_argument(
+        "--misfire-grace-seconds",
+        type=int,
+        default=None,
+        help="Grace period for missed scheduled jobs"
     )
     parser.add_argument(
         "--max-workers",

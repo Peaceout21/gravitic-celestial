@@ -21,7 +21,22 @@ class HybridRAGEngine:
         )
         self.bm25_corpus: List[List[str]] = []
         self.bm25_doc_ids: List[str] = []
-        self.bm25: BM25Okapi | None = None
+        self.bm25: BM25Okapi = None
+        self._load_bm25_index()
+
+    def _load_bm25_index(self):
+        """Loads all documents from ChromaDB and builds the BM25 index on startup."""
+        count = self.collection.count()
+        if count == 0:
+            return
+        
+        # Fetch all documents from ChromaDB
+        all_docs = self.collection.get(include=["documents"])
+        
+        self.bm25_doc_ids = all_docs['ids']
+        self.bm25_corpus = [self._tokenize(doc) for doc in all_docs['documents']]
+        self.bm25 = BM25Okapi(self.bm25_corpus)
+        print(f"[HybridRAG] Loaded {count} documents into BM25 index.")
 
     def _tokenize(self, text: str) -> List[str]:
         """Simple tokenizer for BM25."""
@@ -87,17 +102,21 @@ class HybridRAGEngine:
         # Reciprocal Rank Fusion
         fused = self._reciprocal_rank_fusion([semantic_ranked, bm25_ranked])
 
-        # Retrieve final documents
+        # Retrieve final documents in RANKED order
         final_ids = [doc_id for doc_id, _ in fused[:top_k]]
         final_docs = self.collection.get(ids=final_ids, include=["documents", "metadatas"])
         
-        results = []
+        # Build a lookup map so we can return results in the correct RRF order
+        doc_map = {}
         for i, doc_id in enumerate(final_docs['ids']):
-            results.append({
+            doc_map[doc_id] = {
                 "id": doc_id,
                 "text": final_docs['documents'][i],
                 "metadata": final_docs['metadatas'][i]
-            })
+            }
+        
+        # Return in ranked order
+        results = [doc_map[doc_id] for doc_id in final_ids if doc_id in doc_map]
         return results
 
 if __name__ == "__main__":
